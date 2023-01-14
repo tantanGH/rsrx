@@ -36,7 +36,7 @@ CFLAGS = $(COMMON_FLAGS) -Wno-builtin-declaration-mismatch -fcall-used-d2 -fcall
     -fexec-charset=cp932 -fverbose-asm -fno-defer-pop	-D__time_t_defined -D__clock_t_defined
 
 # *.c ソースファイル
-C_SRCS = memory.c rsrx.c
+C_SRCS = rsrx.c
 
 # *.s ソースファイル
 ASM_SRCS =

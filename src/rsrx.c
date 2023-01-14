@@ -28,8 +28,8 @@ static void show_help() {
   printf("     -d <download directory> (default:current directory)\n");
   printf("     -s <baud rate> (default:9600)\n");
   printf("     -t <timeout[sec]> (default:180)\n");
-  printf("     -o ... overwrite existing file (default:no)\n");
-  printf("     -f ... no CRC check\n");
+  printf("     -f ... overwrite existing file (default:no)\n");
+  printf("     -r ... no CRC check\n");
   printf("     -h ... show version and help message\n");
 }
 
@@ -65,6 +65,8 @@ int main(int argc, char* argv[]) {
       } else if (argv[i][1] == 'b' && i+1 < argc) {
         buffer_size = atoi(argv[i+1]);
       } else if (argv[i][1] == 'f') {
+        overwrite = 1;
+      } else if (argv[i][1] == 'r') {
         crc_check = 0;
       } else if (argv[i][1] == 'h') {
         show_help();
