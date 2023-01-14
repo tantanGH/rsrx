@@ -405,5 +405,10 @@ exit:
     chunk_data = NULL;
   }
 
+  // flush key buffer
+  while (B_KEYSNS() != 0) {
+    B_KEYINP();
+  }
+
   return rc;
 }
