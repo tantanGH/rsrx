@@ -216,6 +216,14 @@ int main(int argc, char* argv[]) {
     file_time[19] = '\0';
     padding[17] = '\0';
 
+    printf("--\n");
+    printf("Eye Catch: %s\n", eye_catch_start);
+    printf("File Size: %d\n", file_sz);
+    printf("File Name: %s\n", file_name);
+    printf("File Time: %s\n", file_time);
+    //printf("Padding: %s\n", padding);
+    printf("--\n");
+
     static unsigned char out_path_name[ 256 ];
     strcpy(out_path_name, download_path);
     strcat(out_path_name, file_name);
@@ -241,14 +249,6 @@ int main(int argc, char* argv[]) {
       printf("error: File write open error.\n");
       goto exit;
     }
-
-    printf("--\n");
-    printf("Eye Catch: %s\n", eye_catch_start);
-    printf("File Size: %d\n", file_sz);
-    printf("File Name: %s\n", file_name);
-    printf("File Time: %s\n", file_time);
-    //printf("Padding: %s\n", padding);
-    printf("--\n");
 
     // current time
     int file_start_time = time(NULL);

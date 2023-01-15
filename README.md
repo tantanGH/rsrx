@@ -9,6 +9,8 @@ RS232C Binary File Receiver for X680x0/Human68k
 これは RS232C クロス接続した相手の PC/Mac からファイルを受信するためのプログラムです。
 相手方には [RSTX](https://github.com/tantanGH/rstx/) を導入してセットで使います。
 
+注意: 自分の環境で使うことしか考えていないので、リトライ・ACKなど実装の面倒はものは大幅に省いています。
+
 ---
 
 ## Install
