@@ -27,7 +27,7 @@ static void show_help() {
   printf("options:\n");
   printf("     -d <download directory> (default:current directory)\n");
   printf("     -s <baud rate> (default:9600)\n");
-  printf("     -t <timeout[sec]> (default:180)\n");
+  printf("     -t <timeout[sec]> (default:120)\n");
   printf("     -f ... overwrite existing file (default:no)\n");
   printf("     -r ... no CRC check\n");
   printf("     -h ... show version and help message\n");
@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
    
   // default parameters
   int baud_rate = 9600;
-  int timeout = 60;
+  int timeout = 120;
   int overwrite = 0;
   int crc_check = 1;
   int buffer_size = 128 * 1024;
