@@ -1,61 +1,66 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <fcntl.h>
-//#include <stat.h>
 #include <io.h>
 #include <doslib.h>
 #include <iocslib.h>
 #include <zlib.h>
 #include "memory.h"
 
-#define VERSION "0.1.0"
+#define VERSION "0.2.0"
 
 inline static void* _doscall_malloc(size_t size) {
-  int addr = MALLOC(size);
-  return (addr >= 0x81000000) ? NULL : (char*)addr;
+  uint32_t addr = MALLOC(size);
+  return (addr >= 0x81000000) ? NULL : (void*)addr;
 }
 
 inline static void _doscall_mfree(void* ptr) {
   if (ptr == NULL) return;
-  MFREE((int)ptr);
+  MFREE((uint32_t)ptr);
 }
 
 static void show_help() {
   printf("usage: rsrx [options]\n");
   printf("options:\n");
   printf("     -d <download directory> (default:current directory)\n");
-  printf("     -s <baud rate> (default:9600)\n");
+  printf("     -s <baud rate> (default:19200)\n");
   printf("     -t <timeout[sec]> (default:120)\n");
   printf("     -f ... overwrite existing file (default:no)\n");
   printf("     -r ... no CRC check\n");
   printf("     -h ... show version and help message\n");
 }
 
-int main(int argc, char* argv[]) {
+int32_t main(int32_t argc, uint8_t* argv[]) {
 
   // default exit code
-  int rc = 1;
+  int32_t rc = -1;
 
   // program credit and version
   printf("RSRX.X - RS232C File Receiver " VERSION " 2023 by tantan\n");
    
   // default parameters
-  int baud_rate = 9600;
-  int timeout = 120;
-  int overwrite = 0;
-  int crc_check = 1;
-  int buffer_size = 128 * 1024;
-  unsigned char* chunk_data = NULL;
+  int32_t baud_rate = 19200;
+  int16_t timeout = 120;
+  int16_t overwrite = 0;
+  int16_t crc_check = 1;
+  size_t buffer_size = 128 * 1024;
+
+  // data buffer
+  uint8_t* chunk_data = NULL;
+
+  // output file handle
+  FILE* fp = NULL;
 
   // download path
-  static unsigned char download_path [ 256 ];
+  static uint8_t download_path [ 256 ];
   strcpy(download_path, ".");
   
   // command line options
-  for (int i = 1; i < argc; i++) {
-    if (argv[i][0] == '-') {
+  for (int16_t i = 1; i < argc; i++) {
+    if (argv[i][0] == '-' && strlen(argv[i]) >= 2) {
       if (argv[i][1] == 'd' && i+1 < argc) {
         strcpy(download_path, argv[i+1]);
       } else if (argv[i][1] == 's' && i+1 < argc) {
@@ -79,15 +84,15 @@ int main(int argc, char* argv[]) {
   }
 
   // add path delimitor if needed
-  int path_len = strlen(download_path);
-  unsigned char uc = download_path[ path_len - 1 ];
-  unsigned char uc2 = path_len >= 2 ? download_path[ path_len - 2 ] : 0;
+  int16_t path_len = strlen(download_path);
+  uint8_t uc = download_path[ path_len - 1 ];
+  uint8_t uc2 = path_len >= 2 ? download_path[ path_len - 2 ] : 0;
   if (uc != '\\' && uc != '/' && uc2 != ':') {
     strcat(download_path, "\\");
   }
 
   // convert baud rate speed to IOCS SET232C() speed value
-  int speed = 9;
+  int32_t speed = 8;
   switch (baud_rate) {
     case 9600:
       speed = 7;
@@ -110,7 +115,7 @@ int main(int argc, char* argv[]) {
       speed = 0x0f;
       break;
     default:
-    printf("unsupported baud rate.\n");
+    printf("error: unsupported baud rate.\n");
     goto exit;      
   }
 
@@ -119,6 +124,10 @@ int main(int argc, char* argv[]) {
 
   // buffer memory allocation
   chunk_data = _doscall_malloc(buffer_size);
+  if (chunk_data == NULL) {
+    printf("error: cannot allocate buffer memory.\n");
+    goto exit;
+  }
 
   // describe settings
   printf("--\n");
@@ -127,23 +136,23 @@ int main(int argc, char* argv[]) {
   printf("Timeout: %d sec\n", timeout);
   printf("Buffer Size: %d KB\n", buffer_size);
 
-  // output file handle
-  FILE* fp = NULL;
-
   // main loop
   for (;;) {
 
     // try to find eye catch (RSTX7650)
-    static unsigned char eye_catch_start[9] = "RSTX7650";
-    static unsigned char eye_catch_end[9]   = "RSTXDONE";
+    static uint8_t eye_catch_start[9] = "RSTX7650";
+    static uint8_t eye_catch_end[9]   = "RSTXDONE";
 
-    int t0 = time(NULL);
-    int t1 = t0;
-    int ofs = 0;
-    int found = 0;
+    uint32_t t0 = ONTIME();
+    uint32_t t1 = t0;
+    timeout *= 100;
+
+    int32_t ofs = 0;
+    int16_t found = 0;
+
     while ((t1 - t0) < timeout) {
       if (LOF232C() > 0) {
-        unsigned char uc = INP232C() & 0xff;
+        uint8_t uc = INP232C() & 0xff;
         if (uc == eye_catch_start[ofs] || uc == eye_catch_end[ofs]) {
           if (ofs == 7) {
             found = (uc == eye_catch_start[ofs]) ? 1 : -1;      // found full 8 bytes!
@@ -154,8 +163,12 @@ int main(int argc, char* argv[]) {
           ofs = 0;                // need to rewind
         }
       }
-      if (BITSNS(0) & 0x02) break;    // ESC key
-      t1 = time(NULL);
+      if (BITSNS(0) & 0x02) {
+        printf("Closed communication.\n");
+        rc = 1;
+        goto exit;
+      }
+      t1 = ONTIME();
     }
     printf("--\n");
     if (found == 0) {
@@ -170,7 +183,7 @@ int main(int argc, char* argv[]) {
     printf("Established communication link.\n");
 
     // file size (4 bytes) + file name (32 bytes) + file time (19 bytes) + padding (17 bytes)
-    t0 = time(NULL);
+    t0 = ONTIME();
     t1 = t0;
     found = 0;
     while ((t1 - t0) < timeout) {
@@ -178,8 +191,12 @@ int main(int argc, char* argv[]) {
         found = 1;
         break;
       }
-      if (BITSNS(0) & 0x02) break;    // ESC key
-      t1 = time(NULL);
+      if (BITSNS(0) & 0x02) {
+        // ESC key
+        printf("Closed communication.\n");
+        goto exit;
+      }
+      t1 = ONTIME();
     } 
     if (!found) {
       printf("error: Cannot get header information in time.\n");
@@ -187,26 +204,26 @@ int main(int argc, char* argv[]) {
     }
 
     // parse header
-    static unsigned char file_size[4];
-    static unsigned char file_name[32 + 1];
-    static unsigned char file_time[19 + 1];
-    static unsigned char padding[17 + 1];
-    for (int i = 0; i < 4; i++) {
+    static uint8_t file_size[4];
+    static uint8_t file_name[32 + 1];
+    static uint8_t file_time[19 + 1];
+    static uint8_t padding[17 + 1];
+    for (int16_t i = 0; i < 4; i++) {
       file_size[i] = INP232C() & 0xff;
     }
-    for (int i = 0; i < 32; i++) {
+    for (int16_t i = 0; i < 32; i++) {
       file_name[i] = INP232C() & 0xff;
     }
-    for (int i = 0; i < 19; i++) {
+    for (int16_t i = 0; i < 19; i++) {
       file_time[i] = INP232C() & 0xff;
     }
-    for (int i = 0; i < 17; i++) {
+    for (int16_t i = 0; i < 17; i++) {
       padding[i] = INP232C() & 0xff;
     }
 
-    int file_sz = *((int*)file_size);
+    uint32_t file_sz = *((uint32_t*)file_size);
     file_name[32] = '\0';
-    for (int i = 31; i > 0; i--) {      // trimming
+    for (int16_t i = 31; i > 0; i--) {      // trimming
       if (file_name[i] == ' ') {
         file_name[i] = '\0';
       } else {
@@ -224,12 +241,12 @@ int main(int argc, char* argv[]) {
     //printf("Padding: %s\n", padding);
     printf("--\n");
 
-    static unsigned char out_path_name[ 256 ];
+    static uint8_t out_path_name[ 256 ];
     strcpy(out_path_name, download_path);
     strcat(out_path_name, file_name);
 
     if (!overwrite) {
-      int suffix = 0;
+      int16_t suffix = 0;
       for (suffix = 0; suffix < 10; suffix++) {
         static struct FILBUF filbuf;
         if (FILES(&filbuf, out_path_name, 0x33) >= 0) {
@@ -251,21 +268,21 @@ int main(int argc, char* argv[]) {
     }
 
     // current time
-    int file_start_time = time(NULL);
+    uint32_t file_start_time = ONTIME();
 
     // current crc
-    unsigned int current_crc = 0;
+    uint32_t current_crc = 0;
 
     // total received size
-    int received_size = 0;
+    uint32_t received_size = 0;
 
     // total received time
-    int received_time = 0;
+    uint32_t received_time = 0;
 
     for (;;) {
 
       // chunk size
-      t0 = time(NULL);
+      t0 = ONTIME();
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
@@ -273,18 +290,22 @@ int main(int argc, char* argv[]) {
           found = 1;
           break;
         }
-        if (BITSNS(0) & 0x02) break;    // ESC key
-        t1 = time(NULL);
+        if (BITSNS(0) & 0x02) {
+          // ESC key
+          printf("Closed communication.\n");
+          goto exit;
+        }
+        t1 = ONTIME();
       } 
       if (!found) {
         printf("error: Cannot get chunk size information in time.\n");
         goto exit;
       }
-      static unsigned char chunk_size[4];
-      for (int i = 0; i < 4; i++) {
+      static uint8_t chunk_size[4];
+      for (int16_t i = 0; i < 4; i++) {
         chunk_size[i] = INP232C() & 0xff;
       }
-      int chunk_sz = *((int*)chunk_size);
+      uint32_t chunk_sz = *((uint32_t*)chunk_size);
       if (chunk_sz >= buffer_size) {
         printf("error: Chunk size (%d) is larger than buffer size (%d).\n", chunk_sz, buffer_size);
         goto exit;
@@ -296,10 +317,9 @@ int main(int argc, char* argv[]) {
         }
         break;
       }
-      //printf("Chunk Size = %d\n", chunk_sz);
-
+  
       // chunk data
-      t0 = time(NULL);
+      t0 = ONTIME();
       t1 = t0;
       ofs = 0;
       while ((t1 - t0) < timeout) {
@@ -309,8 +329,11 @@ int main(int argc, char* argv[]) {
             break;
           }
         }
-        if (BITSNS(0) & 0x02) break;    // ESC key
-        t1 = time(NULL);
+        if (BITSNS(0) & 0x02) {
+          printf("Closed communication.\n");
+          goto exit;
+        }
+        t1 = ONTIME();
       } 
       if (ofs < chunk_sz) {
         printf("error: Cannot get chunk data in time.\n");
@@ -322,7 +345,7 @@ int main(int argc, char* argv[]) {
       }
 
       // chunk crc
-      t0 = time(NULL);
+      t0 = ONTIME();
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
@@ -330,21 +353,25 @@ int main(int argc, char* argv[]) {
           found = 1;
           break;
         }
-        if (BITSNS(0) & 0x02) break;    // ESC key
-        t1 = time(NULL);
+        if (BITSNS(0) & 0x02) {
+          // ESC key
+          printf("Closed communication.\n");
+          goto exit;
+        }
+        t1 = ONTIME();
       } 
       if (!found) {
         printf("error: Cannot get chunk crc information in time.\n");
         goto exit;
       }
-      static unsigned char chunk_crc[4];
-      for (int i = 0; i < 4; i++) {
+      static uint8_t chunk_crc[4];
+      for (int16_t i = 0; i < 4; i++) {
         chunk_crc[i] = INP232C() & 0xff;
       }
 
       if (crc_check) {
-        unsigned int expected_crc = *((unsigned int*)chunk_crc);
-        unsigned int actual_crc = crc32(current_crc, chunk_data, chunk_sz);
+        uint32_t expected_crc = *((uint32_t*)chunk_crc);
+        uint32_t actual_crc = crc32(current_crc, chunk_data, chunk_sz);
         if (actual_crc != expected_crc) {
           printf("error: CRC error.\n");
           goto exit;
@@ -354,8 +381,8 @@ int main(int argc, char* argv[]) {
 
       received_size += chunk_sz;
 
-      int elapsed = time(NULL) - file_start_time;
-      printf("Received %d/%d bytes (%4.2f%%) in %d sec.\n", received_size, file_sz, 100.0*received_size/file_sz, elapsed);
+      uint32_t elapsed = ONTIME() - file_start_time;
+      printf("\rReceived %d/%d bytes (%4.2f%%) in %4.2f sec.", received_size, file_sz, 100.0*received_size/file_sz, elapsed/100.0);
     }
 
     // close file
@@ -363,26 +390,26 @@ int main(int argc, char* argv[]) {
     fp = NULL;
 
     // update file timestamp
-    unsigned char year[] = "    ";
-    unsigned char month[] = "  ";
-    unsigned char day[] = "  ";
-    unsigned char hour[] = "  ";
-    unsigned char min[] = "  ";
-    unsigned char sec[] = "  ";
+    uint8_t year[] = "    ";
+    uint8_t month[] = "  ";
+    uint8_t day[] = "  ";
+    uint8_t hour[] = "  ";
+    uint8_t min[] = "  ";
+    uint8_t sec[] = "  ";
     memcpy(year,file_time,4);
     memcpy(month,file_time+5,2);
     memcpy(day,file_time+8,2);
     memcpy(hour,file_time+11,2);
     memcpy(min,file_time+14,2);
     memcpy(sec,file_time+17,2);
-    int dt = ((atoi(year) - 1980) << 25) | (atoi(month) << 21) | (atoi(day) << 16) | (atoi(hour) << 11) | (atoi(min) << 5) | (atoi(sec));
-    //int fno = open(out_path_name, O_WRONLY | O_BINARY, S_IWRITE);
-    int fno = open(out_path_name, O_WRONLY | O_BINARY, 1);              // to avoid conflict with zlib.h
+    uint32_t dt = ((atoi(year) - 1980) << 25) | (atoi(month) << 21) | (atoi(day) << 16) | (atoi(hour) << 11) | (atoi(min) << 5) | (atoi(sec));
+    //uint32_t fno = open(out_path_name, O_WRONLY | O_BINARY, S_IWRITE);
+    uint32_t fno = open(out_path_name, O_WRONLY | O_BINARY, 1);              // to avoid conflict with zlib.h
     FILEDATE(fno, dt);
     close(fno);
 
-    int elapsed = time(NULL) - file_start_time;
-    printf("Received %d/%d bytes successfully in %d sec as %s\n", received_size, file_sz, elapsed, out_path_name);
+    uint32_t elapsed = ONTIME() - file_start_time;
+    printf("\rReceived %d/%d bytes successfully in %4.2f sec as %s\n", received_size, file_sz, elapsed/100.0, out_path_name);
 
   }
 

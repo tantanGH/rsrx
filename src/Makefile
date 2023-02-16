@@ -25,13 +25,13 @@ TARGET_FILE = RSRX.X
 DOCUMENT_FILE = RSRX.DOC
 
 # Distribution package 
-PACKAGE_FILE = ../RSRX010.ZIP
+PACKAGE_FILE = ../RSRX020.ZIP
 
 # ヘッダ検索パス
 INCLUDE_FLAGS = -I${XDEV68K_DIR}/include/xc -I${XDEV68K_DIR}/include/xdev68k -I${XDEV68K_DIR}/include/zlib
 
 # コンパイルフラグ
-COMMON_FLAGS = -m68000 -Os $(INCLUDE_FLAGS) -z-stack=131072
+COMMON_FLAGS = -m68000 -Os $(INCLUDE_FLAGS) -z-stack=32768
 CFLAGS = $(COMMON_FLAGS) -Wno-builtin-declaration-mismatch -fcall-used-d2 -fcall-used-a2 \
     -fexec-charset=cp932 -fverbose-asm -fno-defer-pop	-D__time_t_defined -D__clock_t_defined
 
