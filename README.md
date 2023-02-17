@@ -32,7 +32,7 @@ X68000 LIBRARY からダウンロードして導入しておきます。
 
 ### Install (Python版)
 
-    pip install git+https://github.com/tantanGH/rstx.git
+    pip install git+https://github.com/tantanGH/rsrx.git
 
 [Windowsユーザ向けPython導入ガイド](https://github.com/tantanGH/distribution/blob/main/windows_python_for_x68k.md)
 
