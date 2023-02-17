@@ -10,7 +10,7 @@
 #include <zlib.h>
 #include "memory.h"
 
-#define VERSION "0.2.0"
+#define VERSION "0.3.0"
 
 inline static void* _doscall_malloc(size_t size) {
   uint32_t addr = MALLOC(size);
@@ -39,14 +39,14 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   int32_t rc = -1;
 
   // program credit and version
-  printf("RSRX.X - RS232C File Receiver " VERSION " 2023 by tantan\n");
+  printf("RSRX.X - RS232C File Receiver for X680x0 " VERSION " 2023 by tantan\n");
    
   // default parameters
   int32_t baud_rate = 19200;
   int16_t timeout = 120;
   int16_t overwrite = 0;
   int16_t crc_check = 1;
-  size_t buffer_size = 128 * 1024;
+  size_t buffer_size = 32 * 1024;
 
   // data buffer
   uint8_t* chunk_data = NULL;
@@ -164,7 +164,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         }
       }
       if (BITSNS(0) & 0x02) {
-        printf("Closed communication.\n");
+        printf("\rCanceled.\x1b[K\n");
         rc = 1;
         goto exit;
       }
