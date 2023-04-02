@@ -76,7 +76,7 @@ def receive_files(download_path, device, speed, timeout, force):
       # file size (4 bytes) + file name (32 bytes) + file time (19 bytes) + padding (17 bytes)
       header = port.read(72)
       file_size = header[0:4]
-      file_name = header[4:36].decode('cp932').rstrip()
+      file_name = header[4:36].decode('ascii').rstrip()
       file_time = header[36:55].decode('ascii')
       padding = header[55:72]
 
