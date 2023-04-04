@@ -8,7 +8,6 @@
 #include <doslib.h>
 #include <iocslib.h>
 #include <zlib.h>
-#include "e_rs232c.h"
 
 #define VERSION "0.4.0"
 
@@ -22,6 +21,87 @@ inline static void _dos_mfree(void* ptr) {
   MFREE((uint32_t)ptr);
 }
 
+inline static int32_t s_inp232c() {
+  return INP232C();
+}
+
+inline static int32_t s_lof232c() {
+  return LOF232C();
+}
+
+inline static void e_set232c(int32_t mode) {
+    
+  struct REGS in_regs = { 0 };
+  struct REGS out_regs = { 0 };
+
+  in_regs.d0 = 0xf1;
+  in_regs.d1 = mode;
+  in_regs.d2 = 0x0030;
+
+  TRAP15(&in_regs, &out_regs);
+}
+
+inline static uint8_t* e_buf232c(uint8_t* buf_addr, size_t buf_size, size_t* orig_size) {
+
+  struct REGS in_regs = { 0 };
+  struct REGS out_regs = { 0 };
+
+  in_regs.d0 = 0xf1;
+  in_regs.d1 = buf_size;
+  in_regs.d2 = 0x0036;
+  in_regs.a1 = (uint32_t)buf_addr;
+
+  TRAP15(&in_regs, &out_regs);
+
+  *orig_size = out_regs.d1;
+
+  return (uint8_t*)out_regs.a1;
+}
+
+inline static void e_out232c(uint8_t data) {
+    
+  struct REGS in_regs = { 0 };
+  struct REGS out_regs = { 0 };
+
+  in_regs.d0 = 0xf1;
+  in_regs.d1 = data;
+  in_regs.d2 = 0x0035;
+
+  TRAP15(&in_regs, &out_regs);
+}
+
+inline static int32_t e_inp232c() {
+
+  struct REGS in_regs = { 0 };
+  struct REGS out_regs = { 0 };
+
+  in_regs.d0 = 0xf1;
+  in_regs.d2 = 0x0032;
+
+  TRAP15(&in_regs, &out_regs);
+
+  return out_regs.d0 & 0xff;
+}
+
+inline static int32_t e_lof232c() {
+
+  struct REGS in_regs = { 0 };
+  struct REGS out_regs = { 0 };
+
+  in_regs.d0 = 0xf1;
+  in_regs.d2 = 0x0031;
+
+  TRAP15(&in_regs, &out_regs);
+
+  return out_regs.d0 & 0xffff;
+}
+
+// check enhanced RS232C call availability
+static int32_t e_rs232c_isavailable() {
+  int32_t v = INTVCG(0x1f1);
+  return (v < 0 || (v >= 0xfe0000 && v <= 0xffffff)) ? 0 : 1;
+}
+
 static void show_help() {
   printf("usage: rsrx [options]\n");
   printf("options:\n");
@@ -31,6 +111,7 @@ static void show_help() {
   printf("     -f ... overwrite existing file (default:no)\n");
 //  printf("     -r ... no CRC check\n");
 //  printf("     -v ... verbose mode\n");
+//  printf("     -e ... do not use enhanced IOCS call for RSDRV.SYS\n");
   printf("     -h ... show version and help message\n");
 }
 
@@ -67,6 +148,11 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   static uint8_t download_path [ 256 ];
   strcpy(download_path, ".");
   
+  // check RSDRV.SYS
+  if (e_rs232c_isavailable()) {
+    e_rs232c = 1;
+  }
+
   // command line options
   for (int16_t i = 1; i < argc; i++) {
     if (argv[i][0] == '-' && strlen(argv[i]) >= 2) {
@@ -82,6 +168,8 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         overwrite = 1;
       } else if (argv[i][1] == 'r') {
         crc_check = 0;
+      } else if (argv[i][1] == 'e') {
+        e_rs232c = 0;
       } else if (argv[i][1] == 'v') {
         verbose = 1;
       } else if (argv[i][1] == 'h') {
@@ -130,11 +218,6 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     goto exit;      
   }
 
-  // check RSDRV.SYS
-  if (e_rs232c_isavailable()) {
-    e_rs232c = 1;
-  }
-
   // setup RS232C port
   if (e_rs232c) {
     e_set232c( 0x4C00 + speed );
@@ -164,8 +247,8 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     printf("Verbose Mode: on\n");
   }
 
-  int32_t (*_inp232c)() = e_rs232c ? e_inp232c : (int32_t(*)())INP232C;
-  int32_t (*_lof232c)() = e_rs232c ? e_lof232c : (int32_t(*)())LOF232C;
+//  int32_t (*_inp232c)() = e_rs232c ? e_inp232c : s_inp232c;
+//  int32_t (*_lof232c)() = e_rs232c ? e_lof232c : s_lof232c;
 
   // main loop
   for (;;) {
@@ -182,8 +265,8 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     int16_t found = 0;
 
     while ((t1 - t0) < timeout) {
-      if (_lof232c() > 0) {
-        uint8_t uc = _inp232c() & 0xff;
+      if (LOF232C() > 0) {
+        uint8_t uc = INP232C() & 0xff;
         if (verbose) {
           if (uc >= 0x20 && uc <= 0x7f) {
             printf("%c", uc);
@@ -218,10 +301,10 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       goto exit;
     }
 
-    e_out232c('L');
-    e_out232c('I');
-    e_out232c('N');
-    e_out232c('K');
+    OUT232C('L');
+    OUT232C('I');
+    OUT232C('N');
+    OUT232C('K');
     printf("Established communication link.\n");
 
     // parse header part 1
@@ -231,7 +314,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     t1 = t0;
     found = 0;
     while ((t1 - t0) < timeout) {
-      if (_lof232c() >= 36) {
+      if (LOF232C() >= 36) {
         found = 1;
         break;
       }
@@ -249,10 +332,10 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     static uint8_t file_size[4];
     static uint8_t file_name[32 + 1];
     for (int16_t i = 0; i < 4; i++) {
-      file_size[i] = _inp232c() & 0xff;
+      file_size[i] = INP232C() & 0xff;
     }
     for (int16_t i = 0; i < 32; i++) {
-      file_name[i] = _inp232c() & 0xff;
+      file_name[i] = INP232C() & 0xff;
     }
 
     // file time (19 bytes) + padding (17 bytes)
@@ -260,7 +343,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     t1 = t0;
     found = 0;
     while ((t1 - t0) < timeout) {
-      if (_lof232c() >= 36) {
+      if (LOF232C() >= 36) {
         found = 1;
         break;
       }
@@ -278,10 +361,10 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     static uint8_t file_time[19 + 1];
     static uint8_t padding[17 + 1];
     for (int16_t i = 0; i < 19; i++) {
-      file_time[i] = _inp232c() & 0xff;
+      file_time[i] = INP232C() & 0xff;
     }
     for (int16_t i = 0; i < 17; i++) {
-      padding[i] = _inp232c() & 0xff;
+      padding[i] = INP232C() & 0xff;
     }
 
     uint32_t file_sz = *((uint32_t*)file_size);
@@ -350,7 +433,7 @@ retry:
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
-        if (_lof232c() >= 4) {
+        if (LOF232C() >= 4) {
           found = 1;
           break;
         }
@@ -367,7 +450,7 @@ retry:
       }
       static uint8_t chunk_size[4];
       for (int16_t i = 0; i < 4; i++) {
-        chunk_size[i] = _inp232c() & 0xff;
+        chunk_size[i] = INP232C() & 0xff;
       }
       uint32_t chunk_sz = *((uint32_t*)chunk_size);
       if (chunk_sz >= buffer_size) {
@@ -390,8 +473,8 @@ retry:
       t1 = t0;
       ofs = 0;
       while ((t1 - t0) < timeout) {
-        if (_lof232c() > 0) {
-          chunk_data[ofs++] = _inp232c() & 0xff;
+        if (LOF232C() > 0) {
+          chunk_data[ofs++] = INP232C() & 0xff;
           if (ofs >= chunk_sz) {
             break;
           }
@@ -416,7 +499,7 @@ retry:
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
-        if (_lof232c() >= 4) {
+        if (LOF232C() >= 4) {
           found = 1;
           break;
         }
@@ -433,7 +516,7 @@ retry:
       }
       static uint8_t chunk_crc[4];
       for (int16_t i = 0; i < 4; i++) {
-        chunk_crc[i] = _inp232c() & 0xff;
+        chunk_crc[i] = INP232C() & 0xff;
       }
       if (verbose) {
         printf("chunk crc: %02X%02X%02X%02X\n", chunk_crc[0], chunk_crc[1], chunk_crc[2], chunk_crc[3]);
@@ -444,16 +527,16 @@ retry:
         uint32_t actual_crc = crc32(current_crc, chunk_data, chunk_sz);
         if (actual_crc != expected_crc) {
           printf("\r\nerror: CRC error. (expected=%08X, actual=%08X)\n", expected_crc, actual_crc);
-          e_out232c('F');
-          e_out232c('A');
-          e_out232c('I');
-          e_out232c('L');
+          OUT232C('F');
+          OUT232C('A');
+          OUT232C('I');
+          OUT232C('L');
           goto retry;
         }
-        e_out232c('P');
-        e_out232c('A');
-        e_out232c('S');
-        e_out232c('S');
+        OUT232C('P');
+        OUT232C('A');
+        OUT232C('S');
+        OUT232C('S');
         current_crc = actual_crc;
       }
 
@@ -489,10 +572,10 @@ retry:
     uint32_t elapsed = ONTIME() - file_start_time;
     printf("\rReceived %d/%d bytes successfully in %4.2f sec as %s\n", received_size, file_sz, elapsed/100.0, out_path_name);
 
-    e_out232c('D');
-    e_out232c('O');
-    e_out232c('N');
-    e_out232c('E');
+    OUT232C('D');
+    OUT232C('O');
+    OUT232C('N');
+    OUT232C('E');
 
   }
 
@@ -500,10 +583,10 @@ exit:
 
   if (rc != 0) {
     // exit message
-    e_out232c('E');
-    e_out232c('I');
-    e_out232c('X');
-    e_out232c('T');
+    OUT232C('E');
+    OUT232C('I');
+    OUT232C('X');
+    OUT232C('T');
   }
 
   // close output file handle
@@ -513,8 +596,8 @@ exit:
   }
 
   // discard unconsumed data
-  while (_lof232c() > 0) {
-    _inp232c();
+  while (LOF232C() > 0) {
+    INP232C();
   }
 
   // resume buffer
