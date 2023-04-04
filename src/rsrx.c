@@ -8,16 +8,16 @@
 #include <doslib.h>
 #include <iocslib.h>
 #include <zlib.h>
-#include "memory.h"
+#include "e_rs232c.h"
 
-#define VERSION "0.3.0"
+#define VERSION "0.4.0"
 
-inline static void* _doscall_malloc(size_t size) {
+inline static void* _dos_malloc(size_t size) {
   uint32_t addr = MALLOC(size);
   return (addr >= 0x81000000) ? NULL : (void*)addr;
 }
 
-inline static void _doscall_mfree(void* ptr) {
+inline static void _dos_mfree(void* ptr) {
   if (ptr == NULL) return;
   MFREE((uint32_t)ptr);
 }
@@ -29,7 +29,8 @@ static void show_help() {
   printf("     -s <baud rate> (default:19200)\n");
   printf("     -t <timeout[sec]> (default:120)\n");
   printf("     -f ... overwrite existing file (default:no)\n");
-  printf("     -r ... no CRC check\n");
+//  printf("     -r ... no CRC check\n");
+//  printf("     -v ... verbose mode\n");
   printf("     -h ... show version and help message\n");
 }
 
@@ -46,10 +47,18 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   int16_t timeout = 120;
   int16_t overwrite = 0;
   int16_t crc_check = 1;
+  int16_t verbose = 0;
+  int16_t e_rs232c = 0;
   size_t buffer_size = 32 * 1024;
 
-  // data buffer
+  // chunk data buffer
   uint8_t* chunk_data = NULL;
+
+  // rs232c buffer (for RSDRV.SYS)
+  uint8_t* rs232c_buffer = NULL;
+  uint8_t* rs232c_buffer_orig = NULL;
+  size_t rs232c_buffer_size = buffer_size;
+  size_t rs232c_buffer_size_orig = 0;
 
   // output file handle
   FILE* fp = NULL;
@@ -73,6 +82,8 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         overwrite = 1;
       } else if (argv[i][1] == 'r') {
         crc_check = 0;
+      } else if (argv[i][1] == 'v') {
+        verbose = 1;
       } else if (argv[i][1] == 'h') {
         show_help();
         goto exit;
@@ -119,11 +130,22 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     goto exit;      
   }
 
+  // check RSDRV.SYS
+  if (e_rs232c_isavailable()) {
+    e_rs232c = 1;
+  }
+
   // setup RS232C port
-  SET232C( 0x4C00 + speed );    // 8bit, non-P, 1stop, no-XON
+  if (e_rs232c) {
+    e_set232c( 0x4C00 + speed );
+    rs232c_buffer = _dos_malloc(rs232c_buffer_size);
+    rs232c_buffer_orig = e_buf232c(rs232c_buffer, rs232c_buffer_size, &rs232c_buffer_size_orig);
+  } else {
+    SET232C( 0x4C00 + speed );    // 8bit, non-P, 1stop, no flow control
+  }
 
   // buffer memory allocation
-  chunk_data = _doscall_malloc(buffer_size);
+  chunk_data = _dos_malloc(buffer_size);
   if (chunk_data == NULL) {
     printf("error: cannot allocate buffer memory.\n");
     goto exit;
@@ -135,6 +157,15 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
   printf("Baud Rate: %d bps\n", baud_rate);
   printf("Timeout: %d sec\n", timeout);
   printf("Buffer Size: %d KB\n", buffer_size);
+  if (e_rs232c) {
+    printf("RSDRV.SYS: yes\n");
+  }
+  if (verbose) {
+    printf("Verbose Mode: on\n");
+  }
+
+  int32_t (*_inp232c)() = e_rs232c ? e_inp232c : (int32_t(*)())INP232C;
+  int32_t (*_lof232c)() = e_rs232c ? e_lof232c : (int32_t(*)())LOF232C;
 
   // main loop
   for (;;) {
@@ -151,8 +182,15 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     int16_t found = 0;
 
     while ((t1 - t0) < timeout) {
-      if (LOF232C() > 0) {
-        uint8_t uc = INP232C() & 0xff;
+      if (_lof232c() > 0) {
+        uint8_t uc = _inp232c() & 0xff;
+        if (verbose) {
+          if (uc >= 0x20 && uc <= 0x7f) {
+            printf("%c", uc);
+          } else {
+            printf("*", uc);
+          }
+        }
         if (uc == eye_catch_start[ofs] || uc == eye_catch_end[ofs]) {
           if (ofs == 7) {
             found = (uc == eye_catch_start[ofs]) ? 1 : -1;      // found full 8 bytes!
@@ -180,14 +218,20 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       goto exit;
     }
 
+    e_out232c('L');
+    e_out232c('I');
+    e_out232c('N');
+    e_out232c('K');
     printf("Established communication link.\n");
 
-    // file size (4 bytes) + file name (32 bytes) + file time (19 bytes) + padding (17 bytes)
+    // parse header part 1
+    // * with RSDRV.SYS, max LOF size is 64 bytes
+    // file size (4 bytes) + file name (32 bytes)
     t0 = ONTIME();
     t1 = t0;
     found = 0;
     while ((t1 - t0) < timeout) {
-      if (LOF232C() >= 72) {
+      if (_lof232c() >= 36) {
         found = 1;
         break;
       }
@@ -202,23 +246,42 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       printf("error: Cannot get header information in time.\n");
       goto exit;
     }
-
-    // parse header
     static uint8_t file_size[4];
     static uint8_t file_name[32 + 1];
-    static uint8_t file_time[19 + 1];
-    static uint8_t padding[17 + 1];
     for (int16_t i = 0; i < 4; i++) {
-      file_size[i] = INP232C() & 0xff;
+      file_size[i] = _inp232c() & 0xff;
     }
     for (int16_t i = 0; i < 32; i++) {
-      file_name[i] = INP232C() & 0xff;
+      file_name[i] = _inp232c() & 0xff;
     }
+
+    // file time (19 bytes) + padding (17 bytes)
+    t0 = ONTIME();
+    t1 = t0;
+    found = 0;
+    while ((t1 - t0) < timeout) {
+      if (_lof232c() >= 36) {
+        found = 1;
+        break;
+      }
+      if (BITSNS(0) & 0x02) {
+        // ESC key
+        printf("Closed communication.\n");
+        goto exit;
+      }
+      t1 = ONTIME();
+    } 
+    if (!found) {
+      printf("error: Cannot get header information in time.\n");
+      goto exit;
+    }
+    static uint8_t file_time[19 + 1];
+    static uint8_t padding[17 + 1];
     for (int16_t i = 0; i < 19; i++) {
-      file_time[i] = INP232C() & 0xff;
+      file_time[i] = _inp232c() & 0xff;
     }
     for (int16_t i = 0; i < 17; i++) {
-      padding[i] = INP232C() & 0xff;
+      padding[i] = _inp232c() & 0xff;
     }
 
     uint32_t file_sz = *((uint32_t*)file_size);
@@ -281,12 +344,13 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
 
     for (;;) {
 
+retry:
       // chunk size
       t0 = ONTIME();
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
-        if (LOF232C() >= 4) {
+        if (_lof232c() >= 4) {
           found = 1;
           break;
         }
@@ -303,7 +367,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       }
       static uint8_t chunk_size[4];
       for (int16_t i = 0; i < 4; i++) {
-        chunk_size[i] = INP232C() & 0xff;
+        chunk_size[i] = _inp232c() & 0xff;
       }
       uint32_t chunk_sz = *((uint32_t*)chunk_size);
       if (chunk_sz >= buffer_size) {
@@ -317,14 +381,17 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
         }
         break;
       }
+      if (verbose) {
+        printf("chunk size: %d\n", chunk_sz);
+      }
   
       // chunk data
       t0 = ONTIME();
       t1 = t0;
       ofs = 0;
       while ((t1 - t0) < timeout) {
-        if (LOF232C() > 0) {
-          chunk_data[ofs++] = INP232C() & 0xff;
+        if (_lof232c() > 0) {
+          chunk_data[ofs++] = _inp232c() & 0xff;
           if (ofs >= chunk_sz) {
             break;
           }
@@ -349,7 +416,7 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       t1 = t0;
       found = 0;
       while ((t1 - t0) < timeout) {
-        if (LOF232C() >= 4) {
+        if (_lof232c() >= 4) {
           found = 1;
           break;
         }
@@ -366,16 +433,27 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
       }
       static uint8_t chunk_crc[4];
       for (int16_t i = 0; i < 4; i++) {
-        chunk_crc[i] = INP232C() & 0xff;
+        chunk_crc[i] = _inp232c() & 0xff;
+      }
+      if (verbose) {
+        printf("chunk crc: %02X%02X%02X%02X\n", chunk_crc[0], chunk_crc[1], chunk_crc[2], chunk_crc[3]);
       }
 
       if (crc_check) {
         uint32_t expected_crc = *((uint32_t*)chunk_crc);
         uint32_t actual_crc = crc32(current_crc, chunk_data, chunk_sz);
         if (actual_crc != expected_crc) {
-          printf("error: CRC error.\n");
-          goto exit;
+          printf("\r\nerror: CRC error. (expected=%08X, actual=%08X)\n", expected_crc, actual_crc);
+          e_out232c('F');
+          e_out232c('A');
+          e_out232c('I');
+          e_out232c('L');
+          goto retry;
         }
+        e_out232c('P');
+        e_out232c('A');
+        e_out232c('S');
+        e_out232c('S');
         current_crc = actual_crc;
       }
 
@@ -411,9 +489,22 @@ int32_t main(int32_t argc, uint8_t* argv[]) {
     uint32_t elapsed = ONTIME() - file_start_time;
     printf("\rReceived %d/%d bytes successfully in %4.2f sec as %s\n", received_size, file_sz, elapsed/100.0, out_path_name);
 
+    e_out232c('D');
+    e_out232c('O');
+    e_out232c('N');
+    e_out232c('E');
+
   }
 
 exit:
+
+  if (rc != 0) {
+    // exit message
+    e_out232c('E');
+    e_out232c('I');
+    e_out232c('X');
+    e_out232c('T');
+  }
 
   // close output file handle
   if (fp != NULL) {
@@ -422,13 +513,25 @@ exit:
   }
 
   // discard unconsumed data
-  while (LOF232C() > 0) {
-    INP232C();
+  while (_lof232c() > 0) {
+    _inp232c();
+  }
+
+  // resume buffer
+  if (e_rs232c) {
+    if (rs232c_buffer_orig != NULL) {
+      size_t sz;
+      e_buf232c(rs232c_buffer_orig, rs232c_buffer_size_orig, &sz);
+    }
+    if (rs232c_buffer != NULL) {
+      _dos_mfree(rs232c_buffer);
+      rs232c_buffer = NULL;
+    }
   }
 
   // free buffer
   if (chunk_data != NULL) {
-    _doscall_mfree(chunk_data);
+    _dos_mfree(chunk_data);
     chunk_data = NULL;
   }
 

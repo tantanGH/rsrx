@@ -22,7 +22,7 @@ def receive_files(download_path, device, speed, timeout, force):
                         stopbits = serial.STOPBITS_ONE,
                         timeout = timeout,
                         xonxoff = False,
-                        rtscts = True,
+                        rtscts = False,     # True
                         dsrdtr = False )
   # open port
   if port.isOpen() is False:
@@ -71,6 +71,7 @@ def receive_files(download_path, device, speed, timeout, force):
         print("Closed communication.")
         return
 
+      port.write(b"LINK")
       print("Established communication link.")
 
       # file size (4 bytes) + file name (32 bytes) + file time (19 bytes) + padding (17 bytes)
@@ -125,13 +126,16 @@ def receive_files(download_path, device, speed, timeout, force):
 
           total_size += chunk_sz
 
+          port.write(b"PASS")
           print(f"\rReceived {total_size} bytes. (CRC={crc:X})", end="")
 
       mtime = datetime.datetime(year=int(file_time[0:4]), month=int(file_time[5:7]), day=int(file_time[8:10]), hour=int(file_time[11:13]), minute=int(file_time[14:16]), second=int(file_time[17:19]), microsecond=0)
       os.utime(path=download_name, times=(mtime.timestamp(), mtime.timestamp()))
+      port.write(b"DONE")
       print("\nCompleted receiving operation successfully.")
 
   except Exception as e:
+    port.write(b"EXIT")
     print(e)
 
   finally:
