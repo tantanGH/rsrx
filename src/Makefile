@@ -25,7 +25,7 @@ TARGET_FILE = RSRX.X
 DOCUMENT_FILE = RSRX.DOC
 
 # Distribution package 
-PACKAGE_FILE = ../RSRX030.ZIP
+PACKAGE_FILE = ../RSRX040.ZIP
 
 # ヘッダ検索パス
 INCLUDE_FLAGS = -I${XDEV68K_DIR}/include/xc -I${XDEV68K_DIR}/include/xdev68k -I${XDEV68K_DIR}/include/zlib
