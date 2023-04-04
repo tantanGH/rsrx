@@ -49,7 +49,7 @@ inline static uint8_t* e_buf232c(uint8_t* buf_addr, size_t buf_size, size_t* ori
 
   return (uint8_t*)out_regs.a1;
 }
-
+/*
 inline static void e_out232c(uint8_t data) {
     
   struct REGS in_regs = { 0 };
@@ -87,6 +87,7 @@ inline static int32_t e_lof232c() {
 
   return out_regs.d0 & 0xffff;
 }
+*/
 
 // check enhanced RS232C call availability
 static int32_t e_rs232c_isavailable() {
