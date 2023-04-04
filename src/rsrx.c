@@ -21,14 +21,6 @@ inline static void _dos_mfree(void* ptr) {
   MFREE((uint32_t)ptr);
 }
 
-inline static int32_t s_inp232c() {
-  return INP232C();
-}
-
-inline static int32_t s_lof232c() {
-  return LOF232C();
-}
-
 inline static void e_set232c(int32_t mode) {
     
   struct REGS in_regs = { 0 };
