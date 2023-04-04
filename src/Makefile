@@ -25,7 +25,7 @@ TARGET_FILE = RSRX.X
 DOCUMENT_FILE = RSRX.DOC
 
 # Distribution package 
-PACKAGE_FILE = ../RSRX030.ZIP
+PACKAGE_FILE = ../RSRX040.ZIP
 
 # ヘッダ検索パス
 INCLUDE_FLAGS = -I${XDEV68K_DIR}/include/xc -I${XDEV68K_DIR}/include/xdev68k -I${XDEV68K_DIR}/include/zlib
@@ -36,7 +36,7 @@ CFLAGS = $(COMMON_FLAGS) -Wno-builtin-declaration-mismatch -fcall-used-d2 -fcall
     -fexec-charset=cp932 -fverbose-asm -fno-defer-pop	-D__time_t_defined -D__clock_t_defined
 
 # *.c ソースファイル
-C_SRCS = rsrx.c
+C_SRCS = e_rs232c.c rsrx.c
 
 # *.s ソースファイル
 ASM_SRCS =
